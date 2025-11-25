@@ -1,0 +1,88 @@
+import pandas as pd
+import numpy as np
+import joblib
+import category_encoders as ce
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
+from imblearn.over_sampling import SMOTE
+from sklearn.model_selection import GridSearchCV
+
+#preprocessing
+file_list = [
+    "KDDTrain+.txt"
+]
+column_names = [
+    'id', 'protocol', 'flag', 'status',
+    'field1', 'field2', 'field3', 'field4', 'field5', 'field6', 'field7', 'field8', 'field9',
+    'field10', 'field11', 'field12', 'field13', 'field14', 'field15', 'field16', 'field17',
+    'field18', 'field19', 'field20', 'field21', 'field22',
+    'feature1', 'feature2', 'feature3', 'feature4', 'feature5', 'feature6', 'feature7',
+    'feature8', 'feature9', 'feature10', 'feature11', 'feature12',
+    'category',   # For 'normal' value
+    'label'       # For '20' as target
+]
+
+dfs = [pd.read_csv(fname, sep=",", header=None, names=column_names) for fname in file_list]
+data= pd.concat(dfs, ignore_index=True)
+data= data.drop_duplicates()
+
+categorical_cols = ['protocol', 'flag', 'status', 'category']
+
+
+high_card_cols = ['protocol', 'flag']
+low_card_cols = ['status', 'category']
+
+freq_enc = ce.CountEncoder(cols=high_card_cols)
+data[high_card_cols] = freq_enc.fit_transform(data[high_card_cols])
+
+encoder = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
+encoded_low_card = encoder.fit_transform(data[low_card_cols])
+encoded_low_card_df = pd.DataFrame(encoded_low_card, columns=encoder.get_feature_names_out(low_card_cols))
+
+data = data.drop(columns=low_card_cols).reset_index(drop=True)
+data = pd.concat([data, encoded_low_card_df], axis=1)
+
+one_hot_cols = encoded_low_card_df.columns.tolist()
+numeric_cols = [col for col in data.select_dtypes(include=np.number).columns if col not in one_hot_cols + ['label']]
+
+scaler= StandardScaler()
+data.loc[:, numeric_cols] = scaler.fit_transform(data[numeric_cols])
+
+
+
+joblib.dump(encoder, 'encoder.pkl')
+joblib.dump(scaler, 'scaler.pkl')
+data = data.drop(columns=['id'],errors='ignore')
+features = data.drop(['label'],axis=1)
+labels = data['label']
+#print(features.shape)
+#print(labels.shape) 
+#print(labels.value_counts())
+
+#print(features.dtypes)
+
+
+print("OBJECTS:",data.select_dtypes(include='object').columns)
+
+#training model
+X_train, X_test, y_train, y_test = train_test_split(features,labels, test_size=0.2, random_state=42, stratify=labels)
+
+clf =RandomForestClassifier(class_weight='balanced',random_state=42)
+clf.fit(X_train,y_train)
+train_acc =clf.score(X_train,y_train)
+smote= SMOTE(random_state=42)
+X_res, y_res = smote.fit_resample(X_train, y_train)
+clf = RandomForestClassifier(random_state=42)
+clf.fit(X_res, y_res)
+
+joblib.dump(clf, 'random_forest_model.pkl')
+
+print("accuracy:",train_acc)
+
+y_pred= clf.predict(X_test)
+
+print("test_acc:",accuracy_score(y_test, y_pred))
+print(classification_report(y_test,y_pred))
+print(confusion_matrix(y_test, y_pred))
