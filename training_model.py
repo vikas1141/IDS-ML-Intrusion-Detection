@@ -1,4 +1,3 @@
-# train_model.py  (corrected - uses LabelEncoder for training & evaluation)
 import os
 from pathlib import Path
 import joblib
@@ -12,24 +11,21 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
 import xgboost as xgb
 
-# ----------------- CONFIG -----------------
-DATA_PATH = "KDDTrain+.txt"   # change if your file has a different name
+
+DATA_PATH = "KDDTrain+.txt"   
 ARTIFACT_DIR = "artifacts"
 RANDOM_STATE = 42
 TEST_SIZE = 0.2
 Path(ARTIFACT_DIR).mkdir(exist_ok=True)
-# ------------------------------------------
 
-# Explicit schema based on your sample rows:
-# features are columns 0..40 (41 feature columns)
-LABEL_COL_INDEX = 41  # 0-based index of label (second last column)
+LABEL_COL_INDEX = 41 
 DIFFICULTY_COL_INDEX = 42
 
-# Categorical and numeric columns (0-based indices)
-CATEGORICAL_COLS = [1, 2, 3]  # protocol_type, service, flag
+
+CATEGORICAL_COLS = [1, 2, 3] 
 NUMERIC_COLS = [c for c in range(0, 41) if c not in CATEGORICAL_COLS]
 
-# mapping raw attack names to 5 classes
+
 def map_attack_to_category(lbl):
     s = str(lbl).strip().lower().rstrip('.')
     if "normal" in s:
@@ -59,12 +55,10 @@ def load_and_split(path):
     X = df.drop(columns=[LABEL_COL_INDEX, DIFFICULTY_COL_INDEX])
     y_raw = df[LABEL_COL_INDEX].astype(str)
     y = y_raw.apply(map_attack_to_category)
-    # keep only relevant classes (we will keep 'other' too)
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SIZE, stratify=y, random_state=RANDOM_STATE)
     return X_train.reset_index(drop=True), X_test.reset_index(drop=True), y_train.reset_index(drop=True), y_test.reset_index(drop=True)
 
 def fit_preprocessors(X_train):
-    # Use OneHotEncoder handle_unknown=ignore. Older sklearns default to sparse output; convert to dense as needed
     encoder = OneHotEncoder(handle_unknown="ignore")
     scaler = StandardScaler()
     if len(CATEGORICAL_COLS) > 0:
@@ -72,7 +66,7 @@ def fit_preprocessors(X_train):
         try:
             cat_feature_names = encoder.get_feature_names_out([str(c) for c in CATEGORICAL_COLS])
         except Exception:
-            # fallback name generation
+           
             cat_feature_names = []
             for i, c in enumerate(CATEGORICAL_COLS):
                 cats = encoder.categories_[i]
@@ -96,7 +90,7 @@ def transform_df(X, encoder, scaler):
         parts.append(num_df)
     if len(CATEGORICAL_COLS) > 0:
         cat_arr = encoder.transform(X[CATEGORICAL_COLS].astype(str))
-        # cat_arr may be sparse matrix depending on sklearn version -> convert to dense
+        
         try:
             cat_arr = cat_arr.toarray()
         except Exception:
@@ -119,7 +113,7 @@ def transform_df(X, encoder, scaler):
     return X_final
 
 def train_models(X_train, y_train_enc, X_test, y_test_enc, label_encoder):
-    # All models trained on encoded numeric labels (y_*_enc)
+    
     models = {
         "random_forest": RandomForestClassifier(n_estimators=200, random_state=RANDOM_STATE, n_jobs=-1),
         "gradient_boosting": GradientBoostingClassifier(n_estimators=150, random_state=RANDOM_STATE),
@@ -132,12 +126,12 @@ def train_models(X_train, y_train_enc, X_test, y_test_enc, label_encoder):
         print(f"\nTraining {name} ...")
         clf.fit(X_train, y_train_enc)
         preds_enc = clf.predict(X_test)
-        # inverse transform to string labels for reporting
+       
         try:
             preds = label_encoder.inverse_transform(preds_enc)
             y_test_str = label_encoder.inverse_transform(y_test_enc)
         except Exception:
-            # fallback: if label_encoder not available, map integers to strings by str()
+            
             preds = np.array([str(p) for p in preds_enc])
             y_test_str = np.array([str(p) for p in y_test_enc])
         acc = accuracy_score(y_test_enc, preds_enc)
@@ -145,7 +139,7 @@ def train_models(X_train, y_train_enc, X_test, y_test_enc, label_encoder):
         print(classification_report(y_test_str, preds, zero_division=0))
         joblib.dump(clf, os.path.join(ARTIFACT_DIR, f"{name}_model.pkl"))
         results[name] = {"model": clf, "accuracy": acc}
-    # Save best by accuracy
+   
     best_name = max(results.items(), key=lambda kv: kv[1]["accuracy"])[0]
     joblib.dump(results[best_name]["model"], os.path.join(ARTIFACT_DIR, "best_model.pkl"))
     return results
@@ -158,24 +152,24 @@ def main():
     print("Transforming data...")
     X_train = transform_df(X_train_raw, encoder, scaler)
     X_test = transform_df(X_test_raw, encoder, scaler)
-    # align test to train columns
+   
     X_test = X_test.reindex(columns=X_train.columns, fill_value=0)
-    # Save preprocessors and metadata
+ 
     joblib.dump(encoder, os.path.join(ARTIFACT_DIR, "encoder.pkl"))
     joblib.dump(scaler, os.path.join(ARTIFACT_DIR, "scaler.pkl"))
     joblib.dump(metadata, os.path.join(ARTIFACT_DIR, "preprocessing_metadata.pkl"))
     print("Saved encoder/scaler/metadata.")
-    # Label encoding (important: fit on combined train+test to ensure consistent mapping)
+    
     le = LabelEncoder()
     le.fit(pd.concat([y_train, y_test], axis=0))
     y_train_enc = le.transform(y_train)
     y_test_enc = le.transform(y_test)
     joblib.dump(le, os.path.join(ARTIFACT_DIR, "label_encoder.pkl"))
     print("Saved label_encoder.pkl")
-    # Train models (all on encoded labels)
+   
     results = train_models(X_train, y_train_enc, X_test, y_test_enc, le)
     print("Training complete. Models saved in artifacts/")
-    # print summary
+  
     for name, info in results.items():
         print(f"{name}: acc={info['accuracy']:.4f}")
     best_name = max(results.items(), key=lambda kv: kv[1]["accuracy"])[0]

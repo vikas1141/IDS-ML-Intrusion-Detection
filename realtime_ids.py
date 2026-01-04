@@ -1,4 +1,3 @@
-# realtime_ids.py  (fixed: avoid importing L3RawSocket directly)
 import joblib
 import time
 import pandas as pd
@@ -9,7 +8,7 @@ from scapy.all import sniff, IP, TCP, UDP, conf
 
 ARTIFACT_DIR = "artifacts"
 
-# Load artifacts
+
 encoder = joblib.load(os.path.join(ARTIFACT_DIR, "encoder.pkl"))
 scaler = joblib.load(os.path.join(ARTIFACT_DIR, "scaler.pkl"))
 meta = joblib.load(os.path.join(ARTIFACT_DIR, "preprocessing_metadata.pkl"))
@@ -59,43 +58,43 @@ def pkt_to_row(pkt):
 
 from scapy.all import get_if_list
 
-# replace your existing capture_window with this
+
 def capture_window(timeout=WINDOW_SECONDS, iface_selected_holder={"iface": None}):
     """
     Auto-detect an interface that captures packets, then sniff on that interface.
     iface_selected_holder is a dict used to persist chosen interface across calls.
     """
-    # If we already found a working interface, use it
+   
     chosen_iface = iface_selected_holder.get("iface")
     if chosen_iface:
         try:
             pkts = sniff(iface=chosen_iface, filter="ip", timeout=timeout, store=1)
             return [pkt_to_row(p) for p in pkts if IP in p]
         except Exception as e:
-            # If sniff fails on previously chosen iface, reset and try discovery again
+            
             iface_selected_holder["iface"] = None
             chosen_iface = None
 
-    # Discovery: try each interface quickly (short timeout)
+   
     ifaces = get_if_list()
     for iface in ifaces:
         try:
             pkts = sniff(iface=iface, filter="ip", timeout=0.8, store=1)
             if pkts and len(pkts) > 0:
-                # choose this iface for future windows
+                
                 iface_selected_holder["iface"] = iface
                 print(f"Auto-selected interface for capture: {iface} (captured {len(pkts)} packets during probe)")
                 return [pkt_to_row(p) for p in pkts if IP in p]
         except Exception:
-            # ignore interfaces we can't sniff on
+         
             continue
 
-    # Last-resort: try sniff without specifying iface (may still work)
+    
     try:
         pkts = sniff(filter="ip", timeout=timeout, store=1)
         return [pkt_to_row(p) for p in pkts if IP in p]
     except Exception as e:
-        # return empty to indicate no packets
+      
         return []
 
 
@@ -117,10 +116,10 @@ def preprocess_and_predict(df_rows):
         else:
             Xraw[c] = "other"
 
-    # Scale numeric
+   
     X_num = scaler.transform(Xraw[meta["numeric_cols"]].astype(float))
     X_num_df = pd.DataFrame(X_num, columns=[str(c) for c in meta["numeric_cols"]])
-    # Encode categorical
+   
     cat_arr = encoder.transform(Xraw[meta["categorical_cols"]].astype(str))
     try:
         cat_arr = cat_arr.toarray()
@@ -129,7 +128,7 @@ def preprocess_and_predict(df_rows):
     try:
         cat_cols = encoder.get_feature_names_out([str(c) for c in meta["categorical_cols"]])
     except Exception:
-        # fallback: generate names if get_feature_names_out not available
+       
         cat_cols = []
         for i, c in enumerate(meta["categorical_cols"]):
             cats = getattr(encoder, "categories_", [])[i] if hasattr(encoder, "categories_") else []
